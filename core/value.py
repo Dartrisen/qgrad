@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from scipy.sparse import csr_matrix
 
 
 class QuantumState:
@@ -15,6 +16,7 @@ class QuantumState:
         self._prev = set(_children)
         self._op = _op
         self.label = label
+        self._cache = {}
 
     def __repr__(self) -> str:
         return f"QuantumState(data={self.data}, grad={self.grad})"
@@ -23,11 +25,17 @@ class QuantumState:
         """
         Apply a quantum gate (unitary matrix) to the quantum state.
         """
-        out_data = gate @ self.data
+        if isinstance(gate, csr_matrix):
+            out_data = gate.dot(self.data)
+        else:
+            out_data = gate @ self.data
+
         out = QuantumState(out_data, (self,), "apply_gate", label)
 
         def _backward() -> None:
-            self.grad += gate.T.conj() @ out.grad  # Use Hermitian transpose for backward propagation
+            if "gate_grad" not in self._cache:
+                self._cache["gate_grad"] = gate.T.conj()
+            self.grad += self._cache["gate_grad"] @ out.grad
 
         out._backward = _backward
         return out
@@ -40,30 +48,41 @@ class QuantumState:
         out = QuantumState(np.array([expectation]), (self,), "measure", label)
 
         def _backward() -> None:
-            self.grad += 2 * (observable @ self.data).conj() * out.grad  # Chain rule for expectation
+            if "obs_grad" not in self._cache:
+                self._cache["obs_grad"] = observable @ self.data
+            self.grad += 2 * self._cache["obs_grad"].conj() * out.grad
 
         out._backward = _backward
         return out
 
     def backward(self) -> None:
-        """
-        Perform backpropagation to compute gradients through the computational graph.
-        """
-        topo = []
-        visited = set()
+        topo = self._tsort(self)
 
-        def build_topo(v: QuantumState) -> None:
-            if v not in visited:
-                visited.add(v)
-                for child in v._prev:
-                    build_topo(child)
-                topo.append(v)
-
-        build_topo(self)
-
-        self.grad = np.ones_like(self.data, dtype=np.complex128)  # Start with seed gradient
+        self.grad = np.ones_like(self.data, dtype=np.complex128)
         for v in reversed(topo):
             v._backward()
+
+    @staticmethod
+    def _tsort(start: QuantumState) -> list[QuantumState]:
+        """Iterative topological sort for handling large graphs."""
+        topo = []
+        visited = set()
+        stack = [start]
+
+        while stack:
+            node = stack.pop()
+            if node in visited:
+                topo.append(node)
+                continue
+
+            visited.add(node)
+            stack.append(node)
+
+            for child in node._prev:
+                if child not in visited:
+                    stack.append(child)
+
+        return topo
 
 
 # Define quantum gates
