@@ -1,40 +1,54 @@
+# core/quantum_state.py
 from __future__ import annotations
-
 import numpy as np
 from scipy.sparse import csr_matrix
+from typing import Callable, Set, Tuple, Union
+
+from core.quantum_gate import QuantumGate
 
 
 class QuantumState:
     """
     Represents a quantum state (vector) and its associated gradient information.
+
+    :param data: A complex-valued array representing the quantum state.
+    :param label: A label for the quantum state.
     """
 
-    def __init__(self, data: np.ndarray, _children: tuple = (), _op: str = "", label: str = "") -> None:
+    def __init__(self, data: np.ndarray, _children: Tuple[QuantumState, ...] = (), _op: str = "", label: str = "") -> None:
         self.data = data
-        self.grad = np.zeros_like(data, dtype=np.complex128)  # Gradients are complex for quantum states
-        self._backward = lambda: None
-        self._prev = set(_children)
+        self.grad = np.zeros_like(data, dtype=np.complex128)
+        self._backward: Callable[[], None] = lambda: None
+        self._prev: Set[QuantumState] = set(_children)
         self._op = _op
         self.label = label
-        self._cache = {}
+        self._cache: dict = {}
 
     def __repr__(self) -> str:
-        return f"QuantumState(data={self.data}, grad={self.grad})"
+        return f"QuantumState(label={self.label}, data={self.data}, grad={self.grad})"
 
-    def apply_gate(self, gate: np.ndarray, label: str = "") -> QuantumState:
+    def apply_gate(self, gate: Union[np.ndarray, csr_matrix, QuantumGate], label: str = "") -> QuantumState:
         """
         Apply a quantum gate (unitary matrix) to the quantum state.
         """
-        if isinstance(gate, csr_matrix):
-            out_data = gate.dot(self.data)
+        if isinstance(gate, QuantumGate):
+            matrix = gate.matrix
         else:
-            out_data = gate @ self.data
+            matrix = gate
+
+        if matrix.shape[0] != matrix.shape[1] or matrix.shape[0] != len(self.data):
+            raise ValueError(f"Gate shape {matrix.shape} incompatible with state dimension {len(self.data)}")
+
+        if isinstance(matrix, csr_matrix):
+            out_data = matrix.dot(self.data)
+        else:
+            out_data = matrix @ self.data
 
         out = QuantumState(out_data, (self,), "apply_gate", label)
 
         def _backward() -> None:
             if "gate_grad" not in self._cache:
-                self._cache["gate_grad"] = gate.T.conj()
+                self._cache["gate_grad"] = matrix.T.conj()
             self.grad += self._cache["gate_grad"] @ out.grad
 
         out._backward = _backward
