@@ -16,7 +16,7 @@ class QuantumState:
     """
 
     def __init__(self, data: np.ndarray, _children: Tuple[QuantumState, ...] = (), _op: str = "", label: str = "") -> None:
-        self.data = data
+        self.data = np.asarray(data, dtype=np.complex128)
         self.grad = np.zeros_like(data, dtype=np.complex128)
         self._backward: Callable[[], None] = lambda: None
         self._prev: Set[QuantumState] = set(_children)
@@ -26,6 +26,16 @@ class QuantumState:
 
     def __repr__(self) -> str:
         return f"QuantumState(label={self.label}, data={self.data}, grad={self.grad})"
+
+    def __add__(self, other: QuantumState) -> QuantumState:
+        out = QuantumState(self.data + other.data, (self, other), "add")
+
+        def _backward():
+            self.grad += out.grad
+            other.grad += out.grad
+
+        out._backward = _backward
+        return out
 
     def apply_gate(self, gate: Union[np.ndarray, csr_matrix, QuantumGate], label: str = "") -> QuantumState:
         """
