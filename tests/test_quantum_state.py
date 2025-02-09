@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 from scipy.sparse import csr_matrix
 
-from core.value import QuantumState, hadamard_gate, pauli_z_gate, observable_z
+from core.quantum_state import QuantumState, hadamard_gate, pauli_z_gate, observable_z
 
 
 class TestQuantumState(unittest.TestCase):
@@ -103,11 +103,17 @@ class TestQuantumState(unittest.TestCase):
         """Test a graph with overlapping dependencies."""
         state_H1 = self.state_0.apply_gate(self.hadamard, label="H|0⟩")
         state_H2 = self.state_0.apply_gate(self.hadamard, label="H|0⟩ (again)")
-        combined_state = QuantumState(state_H1.data + state_H2.data, (state_H1, state_H2), "combine")
 
+        # Combine the two states using the overloaded '+' operator.
+        combined_state = state_H1 + state_H2
+
+        # Apply a measurement operation.
         expectation = combined_state.measure_expectation(self.pauli_z, label="⟨Z⟩")
+
+        # Run the backward pass.
         expectation.backward()
         print(self.state_0.grad)
+
         # Ensure gradients are distributed correctly
         self.assertTrue(np.any(self.state_0.grad != 0), "Gradients did not propagate correctly.")
         self.assertTrue(np.any(state_H1.grad != 0) and np.any(state_H2.grad != 0), "Child gradients are missing.")
