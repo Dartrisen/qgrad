@@ -37,6 +37,10 @@ class QuantumState:
         out._backward = _backward
         return out
 
+    def norm(self) -> float:
+        """Calculates the norm of the quantum state."""
+        return np.sqrt(np.abs(np.vdot(self.data, self.data)))
+
     def apply_gate(self, gate: Union[np.ndarray, csr_matrix, QuantumGate], label: str = "") -> QuantumState:
         """
         Apply a quantum gate (unitary matrix) to the quantum state.
